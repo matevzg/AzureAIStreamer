@@ -46,7 +46,7 @@ public class ChatService
         Console.Write("[AI]: ");
 
         // Spinner animation
-        var spinnerChars = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+        var spinnerChars = new[] { "⠋ ", "⠙ ", "⠹ ", "⠸ ", "⠼ ", "⠴ ", "⠦ ", "⠧ ", "⠇ ", "⠏ " };
         var spinnerIndex = 0;
         var hasContent = false;
         var spinnerCancellation = new System.Threading.CancellationTokenSource();
@@ -113,7 +113,7 @@ public class ChatService
         }
 
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.Write($"\n[AI General: At {finishTime} | Finish reason {finishReason} ]");
+        Console.WriteLine($"\n[AI General: At {finishTime} | Finish reason {finishReason}]");
         Console.ResetColor();
 
         Console.WriteLine();
