@@ -24,37 +24,65 @@ public class Program
             .AddUserSecrets<Program>()
             .Build();
 
-        // Get configuration values
-        var endpointString = configuration["AzureOpenAI:Endpoint"];
-        var apiKeyString = configuration["AzureOpenAI:ApiKey"];
-        var deploymentName = configuration["AzureOpenAI:DeploymentName"];
-        var systemPrompt = configuration["AzureOpenAI:SystemPrompt"];
+        // Bind configuration to AppConfig
+        var config = new AppConfig
+        {
+            Endpoint = configuration["AzureOpenAI:Endpoint"] ?? string.Empty,
+            ApiKey = configuration["AzureOpenAI:ApiKey"] ?? string.Empty,
+            DeploymentName = configuration["AzureOpenAI:DeploymentName"] ?? string.Empty,
+            SystemPrompt = configuration["AzureOpenAI:SystemPrompt"] ?? string.Empty
+        };
 
         // Validate configuration
-        if (string.IsNullOrWhiteSpace(endpointString) || string.IsNullOrWhiteSpace(apiKeyString) ||
-            string.IsNullOrWhiteSpace(deploymentName) || string.IsNullOrWhiteSpace(systemPrompt))
+        if (!config.IsValid)
         {
             Console.WriteLine("Azure OpenAI configuration is missing. Ensure Endpoint, ApiKey, SystemPrompt and DeploymentName are set in appsettings.json or user secrets.");
             return;
         }
 
-        var endpoint = new Uri(endpointString);
-        var apiKey = new AzureKeyCredential(apiKeyString);
+        var endpoint = new Uri(config.Endpoint);
+        var apiKey = new AzureKeyCredential(config.ApiKey);
 
         // Initialize Azure OpenAI client
-        var chatClient = new AzureOpenAIClient(endpoint, apiKey).GetChatClient(deploymentName);
+        var chatClient = new AzureOpenAIClient(endpoint, apiKey).GetChatClient(config.DeploymentName);
+        var chatService = new ChatService(chatClient);
 
         // Initiate chat history
-        Conversation conversation = new Conversation(systemPrompt);
-        Console.WriteLine($"You are chatting with an AI model. Using {deploymentName} on {endpointString}.\n\nType '/exit' or press [Enter] to quit.");
+        Conversation conversation = new Conversation(config.SystemPrompt);
+        
+        // Display welcome message
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("╔═══════════════════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║          Azure AI Streamer - Interactive Chat with Token Output           ║");
+        Console.WriteLine("╚═══════════════════════════════════════════════════════════════════════════╝");
+        Console.ResetColor();
+        Console.WriteLine($"\nDeployment name: {config.DeploymentName}");
+        Console.WriteLine($"Endpoint: {config.Endpoint}");
+        Console.WriteLine("\nCommands:");
+        Console.WriteLine("  /exit  - Exit the application");
+        Console.WriteLine("  /reset - Reset conversation history\n");
 
         while (true)
         {
-            Console.Write("\n[You]: ");
+            Console.ForegroundColor = ConsoleColor.Blue;
+            Console.Write("[You]: ");
+            Console.ResetColor();
             var userInput = Console.ReadLine();
 
-            if (string.IsNullOrWhiteSpace(userInput) || userInput.Equals("/exit", StringComparison.OrdinalIgnoreCase))
+            if (userInput?.Equals("/exit", StringComparison.OrdinalIgnoreCase) == true)
                 break;
+
+            if (string.IsNullOrWhiteSpace(userInput))
+                continue;
+
+            if (userInput.Equals("/reset", StringComparison.OrdinalIgnoreCase))
+            {
+                conversation = new Conversation(config.SystemPrompt);
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n✓ Conversation history has been reset.\n");
+                Console.ResetColor();
+                continue;
+            }
 
             try
             {
@@ -62,76 +90,21 @@ public class Program
                 conversation.AddUserMessage(userInput);
 
                 // Get AI response
-                string aiResponse = await GetAIResponse(conversation, chatClient, deploymentName);
+                string aiResponse = await chatService.GetAIResponseAsync(conversation, config.DeploymentName);
 
                 // Add AI response to history
                 conversation.AddAssistantMessage(aiResponse);
             }
             catch (Exception ex)
             {
-                Console.WriteLine("\nError while getting AI model response: {0}", ex.Message);
-            }
-        }
-        Console.WriteLine("Goodbye.");
-    }
-
-    private static async Task<string> GetAIResponse(Conversation conversation, ChatClient client, string deploymentName)
-    {
-        var completionOptions = new ChatCompletionOptions
-        {
-            
-            Temperature = 1f,
-            MaxOutputTokenCount = 16384,
-#pragma warning disable OPENAI001
-            ReasoningEffortLevel = ChatReasoningEffortLevel.High
-#pragma warning restore OPENAI001
-        };
-
-        // The SetNewMaxCompletionTokensPropertyEnabled() method is an [Experimental] opt-in to use
-        // the new max_completion_tokens JSON property instead of the legacy max_tokens property.
-        // This extension method will be removed and unnecessary in a future service API version;
-        // please disable the [Experimental] warning to acknowledge.
-#pragma warning disable AOAI001
-        completionOptions.SetNewMaxCompletionTokensPropertyEnabled(true);
-#pragma warning restore AOAI001
-
-        // Streaming the response
-        AsyncCollectionResult<StreamingChatCompletionUpdate> completionUpdates =
-        client.CompleteChatStreamingAsync(conversation.Messages, completionOptions);
-
-        var aiReponse = String.Empty;
-        var finishTime = String.Empty;
-        ChatFinishReason? finishReason = null;
-        
-        Console.Write("[AI]: ");
-
-        await foreach (StreamingChatCompletionUpdate completionUpdate in completionUpdates)
-        {
-            if (completionUpdate.FinishReason != null) finishReason = completionUpdate.FinishReason;
-            ChatTokenUsage usage = completionUpdate.Usage;
-            if (usage != null)
-            {
-#pragma warning disable OPENAI001
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"\n\n[AI Tokens: Total {usage.TotalTokenCount} | Input {usage.InputTokenCount} | Output {usage.OutputTokenCount} | Input cached {usage.InputTokenDetails.CachedTokenCount}]\n[AI Token Details: Output accepted {usage.OutputTokenDetails.AcceptedPredictionTokenCount} | Output rejected {usage.OutputTokenDetails.RejectedPredictionTokenCount} | Output reasoning {usage.OutputTokenDetails.ReasoningTokenCount}]");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n✗ Error while getting AI model response: {0}", ex.Message);
                 Console.ResetColor();
-#pragma warning restore OPENAI001
             }
-
-            foreach (ChatMessageContentPart contentPart in completionUpdate.ContentUpdate)
-            {
-                aiReponse += contentPart.Text;
-                Console.Write(contentPart.Text);
-            }
-
-            finishTime = Convert.ToString(completionUpdate.CreatedAt);
         }
-
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.Write($"\n[AI General: At {finishTime} | Finish reason {finishReason} ]");
+        
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("\nGoodbye! 👋");
         Console.ResetColor();
-
-        Console.WriteLine();
-        return aiReponse;
     }
 }
