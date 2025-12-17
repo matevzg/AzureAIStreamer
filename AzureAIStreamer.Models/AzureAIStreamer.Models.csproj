@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Multi-target to support multiple .NET runtimes -->
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 

@@ -61,6 +61,45 @@ To run the application:
 dotnet run --project AzureAIStreamer.Console
 ```
 
+## Multi-targeting
+
+This repository now multi-targets `net10.0`, `net9.0`, and `net8.0` for both the console and models projects.
+
+- Build for all target frameworks (default):
+
+```bash
+dotnet build
+```
+
+- Build for a single target framework:
+
+```bash
+dotnet build -f net8.0
+dotnet build -f net9.0
+dotnet build -f net10.0
+```
+
+- Run the console app for a specific framework:
+
+```bash
+dotnet run -f net8.0 --project AzureAIStreamer.Console
+```
+
+Notes on package compatibility and conditional code:
+
+- The project references `Azure.AI.OpenAI` (2.5.0-beta.1) which targets `.NET 8.0` and `.NET Standard 2.0` (compatible with newer runtimes). The Microsoft configuration packages target `.NET 6.0` / `.NET Standard 2.0` and are compatible with higher frameworks. No package changes were required for `net8/net9/net10`.
+- If you need framework-specific package versions or APIs, use conditional `ItemGroup` elements in the `.csproj`:
+
+```xml
+<ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+  <PackageReference Include="Some.Package" Version="x.y.z" />
+</ItemGroup>
+```
+
+- For source-level differences, use preprocessor symbols exposed by SDKs: `NET8_0`, `NET9_0`, `NET10_0`.
+
+If you'd like, I can add example conditional references or guards for any package that needs special handling.
+
 ## Usage
 
 1. Configure your Azure OpenAI settings in `appsettings.json`
