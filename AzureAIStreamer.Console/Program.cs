@@ -45,6 +45,16 @@ public class Program
 
         // Initialize Azure OpenAI client
         var chatClient = new AzureOpenAIClient(endpoint, apiKey).GetChatClient(config.DeploymentName);
+
+        // Validate API key early to fail fast on misconfiguration
+        if (!await ValidateApiKeyAsync(chatClient))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Invalid or missing Azure OpenAI API key. Please check your user secrets or configuration.");
+            Console.ResetColor();
+            return;
+        }
+
         var chatService = new ChatService(chatClient);
 
         // Initiate chat history
@@ -107,4 +117,62 @@ public class Program
         Console.WriteLine("\nGoodbye! 👋");
         Console.ResetColor();
     }
+
+    private static async Task<bool> ValidateApiKeyAsync(ChatClient chatClient)
+    {
+        try
+        {
+            var completionOptions = new ChatCompletionOptions
+            {
+                MaxOutputTokenCount = 1
+            };
+
+            // The SetNewMaxCompletionTokensPropertyEnabled() method is an [Experimental] opt-in to use
+            // the new max_completion_tokens JSON property instead of the legacy max_tokens property.
+            // This extension method will be removed and unnecessary in a future service API version;
+            // please disable the [Experimental] warning to acknowledge.
+            #pragma warning disable AOAI001
+            completionOptions.SetNewMaxCompletionTokensPropertyEnabled(true);
+            #pragma warning restore AOAI001
+
+            var messages = new System.Collections.Generic.List<ChatMessage>
+            {
+                new SystemChatMessage("Health check: verify API key"),
+                new UserChatMessage("Ping. Don't respond.")
+            };
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+
+            await foreach (var _ in chatClient.CompleteChatStreamingAsync(messages, completionOptions, cts.Token))
+            {
+                // If we receive any update, the key is valid (or at least accepted)
+                return true;
+            }
+
+            // If streaming completed with no updates, treat as failure
+            return false;
+        }
+        catch (Azure.RequestFailedException ex) when (ex.Status == 401 || ex.Status == 403)
+        {
+            return false;
+        }
+        catch
+        {
+            // Any other exception we surface as a validation failure so program doesn't continue with bad config
+            return false;
+        }
+    }
+}
+
+public class AppConfig
+{
+    public required string Endpoint { get; set; }
+    public required string ApiKey { get; set; }
+    public required string DeploymentName { get; set; }
+    public required string SystemPrompt { get; set; }
+    
+    public bool IsValid => !string.IsNullOrWhiteSpace(Endpoint) &&
+                           !string.IsNullOrWhiteSpace(ApiKey) &&
+                           !string.IsNullOrWhiteSpace(DeploymentName) &&
+                           !string.IsNullOrWhiteSpace(SystemPrompt);
 }
